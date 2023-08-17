@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
-#include "cmark-gfm_export.h"
+#include "export.h"
 #include "cmark-gfm_version.h"
 
 #ifdef __cplusplus
@@ -66,6 +66,7 @@ typedef enum {
   CMARK_NODE_LINK          = CMARK_NODE_TYPE_INLINE | 0x0009,
   CMARK_NODE_IMAGE         = CMARK_NODE_TYPE_INLINE | 0x000a,
   CMARK_NODE_FOOTNOTE_REFERENCE = CMARK_NODE_TYPE_INLINE | 0x000b,
+  CMARK_NODE_ATTRIBUTE          = CMARK_NODE_TYPE_INLINE | 0x000c,
 } cmark_node_type;
 
 extern cmark_node_type CMARK_NODE_LAST_BLOCK;
@@ -111,13 +112,13 @@ typedef struct cmark_mem {
  * realloc and free.
  */
 CMARK_GFM_EXPORT
-cmark_mem *cmark_get_default_mem_allocator();
+cmark_mem *cmark_get_default_mem_allocator(void);
 
 /** An arena allocator; uses system calloc to allocate large
  * slabs of memory.  Memory in these slabs is not reused at all.
  */
 CMARK_GFM_EXPORT
-cmark_mem *cmark_get_arena_mem_allocator();
+cmark_mem *cmark_get_arena_mem_allocator(void);
 
 /** Resets the arena allocator, quickly returning all used memory
  * to the operating system.
@@ -224,6 +225,15 @@ CMARK_GFM_EXPORT cmark_node *cmark_node_first_child(cmark_node *node);
 /** Returns the last child of 'node', or NULL if 'node' has no children.
  */
 CMARK_GFM_EXPORT cmark_node *cmark_node_last_child(cmark_node *node);
+
+/** Returns the N'th child of 'node', or NULL if 'node' does not have at least N children.
+ */
+CMARK_GFM_EXPORT cmark_node *cmark_node_nth_child(cmark_node *node, int n);
+
+/** Returns the footnote reference of 'node', or NULL if 'node' doesn't have a
+ * footnote reference.
+ */
+CMARK_GFM_EXPORT cmark_node *cmark_node_parent_footnote_def(cmark_node *node);
 
 /**
  * ## Iterator
@@ -353,6 +363,11 @@ const char *cmark_node_get_type_string(cmark_node *node);
  */
 CMARK_GFM_EXPORT const char *cmark_node_get_literal(cmark_node *node);
 
+/** Returns the number of backtick characters used to open the
+    node if it is an inline code span, otherwise returns 0.
+ */
+CMARK_GFM_EXPORT int cmark_node_get_backtick_count(cmark_node *node);
+
 /** Sets the string contents of 'node'.  Returns 1 on success,
  * 0 on failure.
  */
@@ -408,6 +423,17 @@ CMARK_GFM_EXPORT int cmark_node_get_list_tight(cmark_node *node);
  */
 CMARK_GFM_EXPORT int cmark_node_set_list_tight(cmark_node *node, int tight);
 
+/**
+ * Returns item index of 'node'. This is only used when rendering output
+ * formats such as commonmark, which need to output the index. It is not
+ * required for formats such as html or latex.
+ */
+CMARK_GFM_EXPORT int cmark_node_get_item_index(cmark_node *node);
+
+/** Sets item index of 'node'. Returns 1 on success, 0 on failure.
+ */
+CMARK_GFM_EXPORT int cmark_node_set_item_index(cmark_node *node, int idx);
+
 /** Returns the info string from a fenced code block.
  */
 CMARK_GFM_EXPORT const char *cmark_node_get_fence_info(cmark_node *node);
@@ -447,6 +473,17 @@ CMARK_GFM_EXPORT const char *cmark_node_get_title(cmark_node *node);
  * 0 on failure.
  */
 CMARK_GFM_EXPORT int cmark_node_set_title(cmark_node *node, const char *title);
+
+/** Returns the attributes of an attribute 'node', or an empty string
+    if no attributes are set.  Returns NULL if called on a node that is
+    not an attribute.
+ */
+CMARK_GFM_EXPORT const char *cmark_node_get_attributes(cmark_node *node);
+
+/** Sets the attributes of an attribute 'node'. Returns 1 on success,
+ * 0 on failure.
+ */
+CMARK_GFM_EXPORT int cmark_node_set_attributes(cmark_node *node, const char *attributes);
 
 /** Returns the literal "on enter" text for a custom 'node', or
     an empty string if no on_enter is set.  Returns NULL if called
@@ -544,10 +581,10 @@ CMARK_GFM_EXPORT void cmark_node_own(cmark_node *root);
  *     cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
  *     FILE *fp = fopen("myfile.md", "rb");
  *     while ((bytes = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
- *     	   cmark_parser_feed(parser, buffer, bytes);
- *     	   if (bytes < sizeof(buffer)) {
- *     	       break;
- *     	   }
+ *            cmark_parser_feed(parser, buffer, bytes);
+ *            if (bytes < sizeof(buffer)) {
+ *                break;
+ *            }
  *     }
  *     document = cmark_parser_finish(parser);
  *     cmark_parser_free(parser);
@@ -752,6 +789,28 @@ char *cmark_render_latex_with_mem(cmark_node *root, int options, int width, cmar
  */
 #define CMARK_OPT_FULL_INFO_STRING (1 << 16)
 
+/** Parse only inline markdown directives. Block directives will not be
+ * parsed (their literal representations will remain in the output).
+ */
+#define CMARK_OPT_INLINE_ONLY (1 << 18)
+
+/** Parse the markdown input without removing preceding/trailing whitespace and
+ * without converting newline characters to breaks. Using this option also
+ * enables the CMARK_OPT_INLINE_ONLY option.
+ */
+#define CMARK_OPT_PRESERVE_WHITESPACE ((1 << 19) | CMARK_OPT_INLINE_ONLY)
+
+/** Parse row- and column-span in tables.
+ */
+#define CMARK_OPT_TABLE_SPANS (1 << 20)
+
+/** Parse table cells defining row span using a double-quote symbol (`"`, or "ditto mark")
+ * instead of the default caret symbol (`^`).
+ *
+ * Does nothing unless \c CMARK_OPT_TABLE_SPANS is also set.
+ */
+#define CMARK_OPT_TABLE_ROWSPAN_DITTO (1 << 21)
+
 /**
  * ## Version information
  */
@@ -779,7 +838,7 @@ const char *cmark_version_string(void);
  * John MacFarlane, Vicent Marti,  Kārlis Gaņģis, Nick Wellnhofer.
  */
 
-#ifndef CMARK_NO_SHORT_NAMES
+#if !defined(CMARK_NO_SHORT_NAMES)
 #define NODE_DOCUMENT CMARK_NODE_DOCUMENT
 #define NODE_BLOCK_QUOTE CMARK_NODE_BLOCK_QUOTE
 #define NODE_LIST CMARK_NODE_LIST

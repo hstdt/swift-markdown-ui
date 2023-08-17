@@ -1,13 +1,66 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "config.h"
+#include "cmark-gfm_config.h"
+#include "mutex.h"
 #include "node.h"
 #include "syntax_extension.h"
+
+CMARK_DEFINE_LOCK(nextflag)
+CMARK_DEFINE_LOCK(safety)
+
+/**
+ * Expensive safety checks are off by default, but can be enabled
+ * by calling cmark_enable_safety_checks().
+ */
+static bool enable_safety_checks = false;
+
+void cmark_enable_safety_checks(bool enable) {
+  CMARK_INITIALIZE_AND_LOCK(safety);
+  enable_safety_checks = enable;
+  CMARK_UNLOCK(safety);
+}
+
+/**
+ * Check whether safety checks have been enabled in a function to guard access
+ * behind a lock.
+ */
+static bool S_safety_checks_enabled() {
+  CMARK_INITIALIZE_AND_LOCK(safety);
+  bool safety_enabled = enable_safety_checks;
+  CMARK_UNLOCK(safety);
+  return safety_enabled;
+}
 
 static void S_node_unlink(cmark_node *node);
 
 #define NODE_MEM(node) cmark_node_mem(node)
+
+void cmark_register_node_flag(cmark_node_internal_flags *flags) {
+  CMARK_INITIALIZE_AND_LOCK(nextflag);
+
+  static cmark_node_internal_flags nextflag = CMARK_NODE__REGISTER_FIRST;
+
+  // flags should be a pointer to a global variable and this function
+  // should only be called once to initialize its value.
+  if (*flags) {
+    fprintf(stderr, "flag initialization error in cmark_register_node_flag\n");
+    abort();
+  }
+
+  // Check that we haven't run out of bits.
+  if (nextflag == 0) {
+    fprintf(stderr, "too many flags in cmark_register_node_flag\n");
+    abort();
+  }
+
+  *flags = nextflag;
+  nextflag <<= 1;
+
+  CMARK_UNLOCK(nextflag);
+}
+
+void cmark_init_standard_node_flags(void) {}
 
 bool cmark_node_can_contain_type(cmark_node *node, cmark_node_type child_type) {
   if (child_type == CMARK_NODE_DOCUMENT) {
@@ -37,6 +90,7 @@ bool cmark_node_can_contain_type(cmark_node *node, cmark_node_type child_type) {
   case CMARK_NODE_STRONG:
   case CMARK_NODE_LINK:
   case CMARK_NODE_IMAGE:
+  case CMARK_NODE_ATTRIBUTE:
   case CMARK_NODE_CUSTOM_INLINE:
     return CMARK_NODE_TYPE_INLINE_P(child_type);
 
@@ -48,8 +102,6 @@ bool cmark_node_can_contain_type(cmark_node *node, cmark_node_type child_type) {
 }
 
 static bool S_can_contain(cmark_node *node, cmark_node *child) {
-  cmark_node *cur;
-
   if (node == NULL || child == NULL) {
     return false;
   }
@@ -57,14 +109,16 @@ static bool S_can_contain(cmark_node *node, cmark_node *child) {
     return 0;
   }
 
-  // Verify that child is not an ancestor of node or equal to node.
-  cur = node;
-  do {
-    if (cur == child) {
-      return false;
-    }
-    cur = cur->parent;
-  } while (cur != NULL);
+  if (S_safety_checks_enabled()) {
+    // Verify that child is not an ancestor of node or equal to node.
+    cmark_node *cur = node;
+    do {
+      if (cur == child) {
+        return false;
+      }
+      cur = cur->parent;
+    } while (cur != NULL);
+  }
 
   return cmark_node_can_contain_type(node, (cmark_node_type) child->type);
 }
@@ -131,6 +185,9 @@ static void free_node_as(cmark_node *node) {
     case CMARK_NODE_IMAGE:
     cmark_chunk_free(NODE_MEM(node), &node->as.link.url);
     cmark_chunk_free(NODE_MEM(node), &node->as.link.title);
+      break;
+    case CMARK_NODE_ATTRIBUTE:
+    cmark_chunk_free(NODE_MEM(node), &node->as.attribute.attributes);
       break;
     case CMARK_NODE_CUSTOM_BLOCK:
     case CMARK_NODE_CUSTOM_INLINE:
@@ -256,6 +313,8 @@ const char *cmark_node_get_type_string(cmark_node *node) {
     return "link";
   case CMARK_NODE_IMAGE:
     return "image";
+  case CMARK_NODE_ATTRIBUTE:
+    return "attribute";
   }
 
   return "<unknown>";
@@ -301,6 +360,27 @@ cmark_node *cmark_node_last_child(cmark_node *node) {
   }
 }
 
+cmark_node *cmark_node_nth_child(cmark_node *node, int n) {
+  if (node == NULL) {
+    return NULL;
+  }
+  int i = 0;
+  cmark_node *ret = node->first_child;
+  while (ret && i < n) {
+    ret = ret->next;
+    ++i;
+  }
+  return ret;
+}
+
+cmark_node *cmark_node_parent_footnote_def(cmark_node *node) {
+  if (node == NULL) {
+    return NULL;
+  } else {
+    return node->parent_footnote_def;
+  }
+}
+
 void *cmark_node_get_user_data(cmark_node *node) {
   if (node == NULL) {
     return NULL;
@@ -337,6 +417,7 @@ const char *cmark_node_get_literal(cmark_node *node) {
   case CMARK_NODE_HTML_INLINE:
   case CMARK_NODE_CODE:
   case CMARK_NODE_FOOTNOTE_REFERENCE:
+  case CMARK_NODE_FOOTNOTE_DEFINITION:
     return cmark_chunk_to_cstr(NODE_MEM(node), &node->as.literal);
 
   case CMARK_NODE_CODE_BLOCK:
@@ -347,6 +428,10 @@ const char *cmark_node_get_literal(cmark_node *node) {
   }
 
   return NULL;
+}
+
+int cmark_node_get_backtick_count(cmark_node *node) {
+  return node->backtick_count;
 }
 
 int cmark_node_set_literal(cmark_node *node, const char *content) {
@@ -524,6 +609,31 @@ int cmark_node_set_list_tight(cmark_node *node, int tight) {
   }
 }
 
+int cmark_node_get_item_index(cmark_node *node) {
+  if (node == NULL) {
+    return 0;
+  }
+
+  if (node->type == CMARK_NODE_ITEM) {
+    return node->as.list.start;
+  } else {
+    return 0;
+  }
+}
+
+int cmark_node_set_item_index(cmark_node *node, int idx) {
+  if (node == NULL || idx < 0) {
+    return 0;
+  }
+
+  if (node->type == CMARK_NODE_ITEM) {
+    node->as.list.start = idx;
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
 const char *cmark_node_get_fence_info(cmark_node *node) {
   if (node == NULL) {
     return NULL;
@@ -639,6 +749,37 @@ int cmark_node_set_title(cmark_node *node, const char *title) {
   case CMARK_NODE_LINK:
   case CMARK_NODE_IMAGE:
     cmark_chunk_set_cstr(NODE_MEM(node), &node->as.link.title, title);
+    return 1;
+  default:
+    break;
+  }
+
+  return 0;
+}
+
+const char *cmark_node_get_attributes(cmark_node *node) {
+  if (node == NULL) {
+    return NULL;
+  }
+
+  switch (node->type) {
+  case CMARK_NODE_ATTRIBUTE:
+    return cmark_chunk_to_cstr(NODE_MEM(node), &node->as.attribute.attributes);
+  default:
+    break;
+  }
+
+  return NULL;
+}
+
+int cmark_node_set_attributes(cmark_node *node, const char *attributes) {
+  if (node == NULL) {
+    return 0;
+  }
+
+  switch (node->type) {
+  case CMARK_NODE_ATTRIBUTE:
+    cmark_chunk_set_cstr(NODE_MEM(node), &node->as.attribute.attributes, attributes);
     return 1;
   default:
     break;

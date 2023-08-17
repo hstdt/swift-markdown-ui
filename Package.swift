@@ -12,17 +12,20 @@ let package = Package(
     .watchOS(.v8),
   ],
   products: [
-    .library(
-      name: "MarkdownUI",
-      targets: ["MarkdownUI"]
-    )
+    .library(name: "MarkdownUI", targets: ["MarkdownUI", "Markdown"]),
   ],
   dependencies: [
     .package(url: "https://github.com/gonzalezreal/NetworkImage", from: "6.0.0"),
     .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.10.0"),
   ],
   targets: [
+    .target(name: "CAtomic"),
     .target(name: "cmark-gfm"),
+    .target(name: "Markdown",
+        dependencies: [
+            "CAtomic",
+            "cmark-gfm",
+        ]),
     .target(
       name: "MarkdownUI",
       dependencies: [
