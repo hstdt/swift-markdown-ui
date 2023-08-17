@@ -1,5 +1,7 @@
 #include "cmark-gfm-core-extensions.h"
 #include "autolink.h"
+#include "mutex.h"
+#include "node.h"
 #include "strikethrough.h"
 #include "table.h"
 #include "tagfilter.h"
@@ -17,11 +19,13 @@ static int core_extensions_registration(cmark_plugin *plugin) {
   return 1;
 }
 
-void cmark_gfm_core_extensions_ensure_registered(void) {
-  static int registered = 0;
+CMARK_DEFINE_ONCE(registered);
 
-  if (!registered) {
-    cmark_register_plugin(core_extensions_registration);
-    registered = 1;
-  }
+static void register_plugins(void) {
+  cmark_register_plugin(core_extensions_registration);
+}
+
+CMARK_GFM_EXPORT
+void cmark_gfm_core_extensions_ensure_registered(void) {
+  CMARK_RUN_ONCE(registered, register_plugins);
 }

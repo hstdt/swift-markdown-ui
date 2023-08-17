@@ -20,7 +20,16 @@ let package = Package(
   ],
   targets: [
     .target(name: "CAtomic"),
-    .target(name: "cmark-gfm"),
+    .target(name: "cmark-gfm",
+            exclude: [
+        "CMakeLists.txt",
+        "ext_scanners.re",
+        "scanners.re",
+        "libcmark-gfm.pc.in",
+        "config.h.in",
+        "CMakeLists.txt",
+        "cmark-gfm_version.h.in",
+     ]),
     .target(name: "Markdown",
         dependencies: [
             "CAtomic",

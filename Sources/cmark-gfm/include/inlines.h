@@ -5,10 +5,13 @@
 extern "C" {
 #endif
 
+#include <stdlib.h>
+#include "cmark-gfm_config.h"
 #include "references.h"
 
 cmark_chunk cmark_clean_url(cmark_mem *mem, cmark_chunk *url);
 cmark_chunk cmark_clean_title(cmark_mem *mem, cmark_chunk *title);
+cmark_chunk cmark_clean_attributes(cmark_mem *mem, cmark_chunk *attributes);
 
 CMARK_GFM_EXPORT
 void cmark_parse_inlines(cmark_parser *parser,
@@ -19,8 +22,14 @@ void cmark_parse_inlines(cmark_parser *parser,
 bufsize_t cmark_parse_reference_inline(cmark_mem *mem, cmark_chunk *input,
                                        cmark_map *refmap);
 
-void cmark_inlines_add_special_character(unsigned char c, bool emphasis);
-void cmark_inlines_remove_special_character(unsigned char c, bool emphasis);
+bufsize_t cmark_parse_reference_attributes_inline(cmark_mem *mem, cmark_chunk *input,
+                                                  cmark_map *refmap);
+
+void cmark_inlines_add_special_character(cmark_parser *parser, unsigned char c, bool emphasis);
+void cmark_inlines_remove_special_character(cmark_parser *parser, unsigned char c, bool emphasis);
+
+void cmark_set_default_skip_chars(int8_t **skip_chars, bool use_memcpy);
+void cmark_set_default_special_chars(int8_t **special_chars, bool use_memcpy);
 
 #ifdef __cplusplus
 }

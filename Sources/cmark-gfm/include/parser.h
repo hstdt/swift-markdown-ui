@@ -2,6 +2,7 @@
 #define CMARK_PARSER_H
 
 #include <stdio.h>
+#include <stdlib.h>
 #include "references.h"
 #include "node.h"
 #include "buffer.h"
@@ -46,9 +47,13 @@ struct cmark_parser {
   /* Options set by the user, see the Options section in cmark.h */
   int options;
   bool last_buffer_ended_with_cr;
+  size_t total_size;
   cmark_llist *syntax_extensions;
   cmark_llist *inline_syntax_extensions;
   cmark_ispunct_func backslash_ispunct;
+  /* used when parsing inlines, can be populated by extensions if any are loaded */
+  int8_t *skip_chars;
+  int8_t *special_chars;
 };
 
 #ifdef __cplusplus

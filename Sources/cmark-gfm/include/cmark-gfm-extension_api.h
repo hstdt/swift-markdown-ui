@@ -114,6 +114,7 @@ typedef struct delimiter {
   struct delimiter *previous;
   struct delimiter *next;
   cmark_node *inl_text;
+  bufsize_t position;
   bufsize_t length;
   unsigned char delim_char;
   int can_open;
@@ -635,10 +636,10 @@ void cmark_inline_parser_set_offset(cmark_inline_parser *parser, int offset);
 CMARK_GFM_EXPORT
 struct cmark_chunk *cmark_inline_parser_get_chunk(cmark_inline_parser *parser);
 
-/** Returns 1 if the inline parser is currently in a bracket; pass 1 for 'image'
- * if you want to know about an image-type bracket, 0 for link-type. */
+/** Returns 1 if the inline parser is currently in a bracket; pass 2 for attribute, 
+ * 1 for 'image' if you want to know about an image-type bracket, 0 for link-type. */
 CMARK_GFM_EXPORT
-int cmark_inline_parser_in_bracket(cmark_inline_parser *parser, int image);
+int cmark_inline_parser_in_bracket(cmark_inline_parser *parser, int type);
 
 /** Remove the last n characters from the last child of the given node.
  * This only works where all n characters are in the single last child, and the last

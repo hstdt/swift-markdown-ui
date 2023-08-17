@@ -581,10 +581,10 @@ CMARK_GFM_EXPORT void cmark_node_own(cmark_node *root);
  *     cmark_parser *parser = cmark_parser_new(CMARK_OPT_DEFAULT);
  *     FILE *fp = fopen("myfile.md", "rb");
  *     while ((bytes = fread(buffer, 1, sizeof(buffer), fp)) > 0) {
- *            cmark_parser_feed(parser, buffer, bytes);
- *            if (bytes < sizeof(buffer)) {
- *                break;
- *            }
+ *     	   cmark_parser_feed(parser, buffer, bytes);
+ *     	   if (bytes < sizeof(buffer)) {
+ *     	       break;
+ *     	   }
  *     }
  *     document = cmark_parser_finish(parser);
  *     cmark_parser_free(parser);
